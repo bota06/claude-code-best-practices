@@ -1,0 +1,225 @@
+# Phase 5：並列化 / CI統合
+# ── 05_parallel-ci.md ──
+
+> **前提**：Phase 1〜4が完了し、プロジェクトが安定していること。
+> **このPhaseはスケールアップのためのオプション。急がなければスキップしてよい。**
+
+---
+
+## Part A：Git Worktrees（並列開発）
+
+### なぜWorktreeを使うのか
+
+```
+問題：1ディレクトリで複数タスク →
+      ブランチ切替でCCのコンテキストが破壊される
+
+解決：Worktreeで物理的に独立したディレクトリを持つ
+効果：並列に複数CCセッションが動作。コンテキスト切替コストゼロ
+```
+
+### 基本コマンド
+
+```bash
+# CCが直接使えるコマンド
+claude --worktree feature-auth   # ワークツリー作成してCCを起動
+claude --worktree bugfix-login   # 別タスク用（並列実行可）
+
+# 一覧・削除
+git worktree list
+git worktree remove .claude/worktrees/feature-auth
+
+# .gitignoreに追加（必須）
+echo ".claude/worktrees/" >> .gitignore
+
+# .env等の環境ファイルをWorktreeに自動コピー
+echo ".env" >> .worktreeinclude
+echo ".env.local" >> .worktreeinclude
+```
+
+### Worktree + Subagentの組み合わせ
+
+```yaml
+# Subagentのfrontmatterにisolation追加
+---
+name: parallel-implementer
+isolation: worktree
+---
+# → 自動的に専用ワークツリーが作られ、完了後クリーンアップされる
+```
+
+### Worktreeの制約
+
+```
+□ .env/.env.localは共有されない（.worktreeinclude で解決）
+□ --resume と --worktree の組み合わせにバグあり（v2.1.80で改善）
+  → 回避策：gitアンカーコミットを使う
+□ node_modules：メインワークツリーからシンボリックリンク（ディスク節約）
+□ 並列の上限：マシンリソース次第。実用上限は3〜5並列
+```
+
+---
+
+## Part B：Agent Teams（実験的機能）
+
+### 有効化
+
+```json
+// .claude/settings.json に追加
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
+```
+
+### 使うべき場面・使わない場面
+
+```
+✅ 並列調査（Research Teams）← 最も安全な入門
+✅ 独立したモジュール実装（frontend/backend/test の分離）
+✅ 複数仮説での並列デバッグ
+
+❌ 順序依存が強いタスク
+❌ 95%の通常開発（単一セッションで十分）
+
+コスト：単一セッションの約7倍のトークン消費
+規模推奨：3〜5名。1名あたり5〜6タスクが生産的
+```
+
+### 起動プロンプト例
+
+```
+「3人のチームメンバーを作成してください：
+- security: セキュリティレビュー専門
+- performance: パフォーマンス分析専門
+- tests: テストカバレッジ分析専門
+それぞれが src/auth/ を並列分析して、
+最後にリードが報告を統合してください。」
+
+Shift+Down でチームメンバー間を切り替え
+/team で状態確認
+```
+
+### Agent Teams + TeammateIdle Hook
+
+```json
+{
+  "hooks": {
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/post-write-quality.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Part C：Headless Mode / CI統合
+
+### 基本構文
+
+```bash
+# -p フラグ = ヘッドレスモード（非対話型）
+claude -p "プロンプト" \
+  --allowedTools Read,Write \   # 許可ツールを限定（CIでは必須）
+  --max-turns 5 \               # 最大ターン数（コスト上限）
+  --output-format json          # 出力形式：text/json/stream-json
+
+# ⚠️ CIでは必ず --allowedTools を指定せよ
+# ⚠️ --dangerously-skip-permissions は本番CIで使うな
+```
+
+### /batch コマンド（大規模一括変換）
+
+```bash
+# インタラクティブセッション内で使用
+/batch "ReactのPagesルーターをApp Routerに移行せよ"
+/batch "全てのclassコンポーネントをfunctional componentに変換せよ"
+
+# /batch の動作：
+# 1. Exploreエージェントがコードベースを調査
+# 2. 5〜30の独立タスクに分解
+# 3. 各タスクを専用Worktreeで並列実行
+# 4. 自動PR作成
+
+# ⚠️ /batch はCIに埋め込めない（セッション内コマンド）
+# CIには claude -p を使え
+```
+
+### GitHub Actions 統合例
+
+```yaml
+# .github/workflows/claude-review.yml
+name: Claude Code Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Security Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # 前回レビュー結果を取得（重複防止）
+          PRIOR=$(gh pr view ${{ github.event.number }} \
+            --json comments \
+            --jq '.comments[] | select(.author.login == "github-actions") | .body' \
+            2>/dev/null || echo "")
+
+          claude -p "このPRのセキュリティレビューをしてください。
+          既報告済み問題：$PRIOR
+          新規問題のみ報告してください。" \
+            --allowedTools Read \
+            --max-turns 3 \
+            --output-format json > review.json
+
+          cat review.json | jq -r '.result' | \
+            gh pr comment ${{ github.event.number }} --body-file -
+        env:
+          GH_TOKEN: ${{ github.token }}
+```
+
+---
+
+## ✅ 自己レビューチェックリスト（CCが確認せよ）
+
+```
+□ Worktree を使う場合：.gitignoreに ".claude/worktrees/" が追加されているか？
+     grep ".claude/worktrees" .gitignore
+
+□ Agent Teams を有効化した場合：settings.jsonに環境変数が追加されているか？
+     grep "AGENT_TEAMS" .claude/settings.json
+
+□ CI統合を行った場合：workflow fileが存在するか？
+     ls .github/workflows/
+
+□ GitHub Actions で --allowedTools が指定されているか？
+     grep "allowedTools" .github/workflows/*.yml
+```
+
+---
+
+## 🛑 STOP：人間がレビューすること
+
+```
+□ Agent Teams を有効化した場合：コスト7倍を理解した上での判断か確認
+□ CIのAPIキーのコスト上限が設定されているか確認（月$50推奨）
+□ GitHub Actions のworkflow内容が意図通りか確認
+
+OKなら → CCに「Phase 5 完了」と伝える
+次のステップ：06_context-model-cost.md をリファレンスとして読む
+```
