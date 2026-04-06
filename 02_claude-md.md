@@ -137,6 +137,13 @@ docs/
 ## Architecture Decisions
 [重要な設計決定とその理由 - 実装時に追記する]
 
+## Worktreeルール（複数セッション運用時）
+- 複数セッションで作業する場合は自動的にworktreeを使用せよ
+- 作業開始時に `git worktree list` で既存worktreeを確認せよ
+- 未コミット変更がある状態で別タスクを始める場合はworktreeを使え（stash禁止）
+- レビュー用セッションは必ず別worktreeで実行せよ
+- worktree名はタスク内容が分かる名前にせよ（例：feature-auth, bugfix-login）
+
 ## タスク完了定義
 タスクが「完了」とみなされるのは以下をすべて満たした場合のみ:
 - [ ] フロー完結チェック：データの流れを最初から最後まで追い、断絶がないか確認
