@@ -140,10 +140,13 @@ if echo "$FILE_PATH" | grep -qE '\.(ts|tsx|js|jsx)$'; then
   fi
 fi
 
-# Python（Ruff）
+# Python（Ruff）— ruffが直接使えない場合は python3 -m ruff にフォールバック
 if echo "$FILE_PATH" | grep -qE '\.py$'; then
   if command -v ruff &>/dev/null; then
     LINT_RESULT=$(ruff check "$FILE_PATH" 2>&1 || true)
+    [ -n "$LINT_RESULT" ] && ISSUES+="Ruff:\n$LINT_RESULT\n"
+  elif command -v python3 &>/dev/null && python3 -m ruff --version &>/dev/null; then
+    LINT_RESULT=$(python3 -m ruff check "$FILE_PATH" 2>&1 || true)
     [ -n "$LINT_RESULT" ] && ISSUES+="Ruff:\n$LINT_RESULT\n"
   fi
 fi
@@ -211,7 +214,8 @@ chmod +x .claude/hooks/stop-build-check.sh
 # .claude/hooks/pre-compact-save.sh
 # compaction発生前に状態をファイル保存する
 
-SAVE_DIR=".claude/session-saves"
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+SAVE_DIR="$PROJECT_ROOT/.claude/session-saves"
 mkdir -p "$SAVE_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SAVE_FILE="$SAVE_DIR/pre-compact-${TIMESTAMP}.md"
@@ -318,6 +322,19 @@ echo '{"disableAllHooks": true}' > .claude/settings.local.json
 # 手動テスト（stdinにJSONを渡す）
 echo '{"tool_input": {"command": "rm -rf /"}}' | bash .claude/hooks/pre-bash-firewall.sh
 echo $?  # 2が返ればブロック正常動作
+```
+
+---
+
+## Hook設計原則
+
+```
+□ Stop Hookのプロンプトが複雑になる場合は .claude/agents/ に委譲せよ
+  → settings.json にロジックを直書きするとメンテが困難になる
+  → 例：Stop Hook → critic.md エージェントを呼び出す
+
+□ exit 0 で終わるHookには「なぜブロックしないのか」をコメントで明記せよ
+  → 品質チェック系は警告のみ（exit 0）が正しい設計だが、意図が読めないと不安になる
 ```
 
 ---

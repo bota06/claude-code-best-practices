@@ -191,6 +191,29 @@ jobs:
             gh pr comment ${{ github.event.number }} --body-file -
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # シークレット検出（gitleaks）— fetch-depth: 0 が必須
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read    # ← これがないとPR差分を取得できない
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # ← 全履歴が必要。デフォルトの1だとgitleaksが正常動作しない
+      - uses: gitleaks/gitleaks-action@v2
+```
+
+### ローカルCI検証（act）
+
+```bash
+# GitHub Actions をローカルで実行（CIの動作確認に推奨）
+brew install act  # macOS
+act pull_request  # PR トリガーのワークフローを実行
+act -l            # 利用可能なジョブ一覧
+
+# → CI を push してから失敗に気づくのを防げる
+# → 特にgitleaks の fetch-depth やパーミッション設定のデバッグに有効
 ```
 
 ---
