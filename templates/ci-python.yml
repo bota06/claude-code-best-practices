@@ -1,0 +1,49 @@
+# Python CI テンプレート
+# lint(ruff) + test(pytest) + gitleaks
+# 使い方: .github/workflows/ci.yml としてコピーし、プロジェクトに合わせて編集
+
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read    # gitleaksがPR差分を読むために必要
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaksが全履歴を必要とする。デフォルトの1だと正常動作しない
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'   # ← プロジェクトのPythonバージョンに合わせる
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest ruff
+
+      - name: Lint（ruff）
+        run: python3 -m ruff check .
+        # ruff がPATHに入っていない環境でも python3 -m ruff で確実に動く
+
+      - name: テスト用ディレクトリ作成
+        run: mkdir -p data knowledge
+        # テストがファイルI/Oを行う場合、ディレクトリが存在しないと失敗する
+
+      - name: Test（pytest）
+        run: python -m pytest -q
+        env:
+          # テスト実行に必要な環境変数（モック前提のため値はdummyでよい）
+          # プロジェクトに合わせて追加・変更すること
+          API_KEY: ${{ secrets.API_KEY || 'dummy' }}
+
+      - name: シークレット検出（gitleaks）
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

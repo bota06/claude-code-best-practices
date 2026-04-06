@@ -128,6 +128,65 @@ permissionMode: plan
 各問題を HIGH/MEDIUM/LOW で分類してください。
 ```
 
+### Criticエージェント（推奨・日常レビュー用）
+
+```yaml
+# .claude/agents/critic.md
+---
+name: critic
+description: >
+  実装完了後に自動で呼ばれるクリティックエージェント。
+  拒絶バイアスで問題を探す。「完了」と判断した直後に起動。
+model: opus
+tools: Read, Grep, Glob, Bash
+permissionMode: plan
+---
+あなたは懐疑的なコードレビュアーです。
+拒絶バイアスで問題を探してください...
+（全文テンプレート → templates/critic.md 参照）
+```
+
+### phase-reviewer vs critic の使い分け
+
+```
+phase-reviewer：Phase完了時のチェックリスト検証
+  → ベストプラクティスのチェックリストをBashで実行
+  → 質的レビュー（重複・依存関係・実行可能性）
+  → 呼び出しタイミング：Phase N 完了時（/phase-complete N）
+
+critic：日常的な変更のフロー断絶・整合性チェック
+  → データフローの断絶、クロスファイル矛盾、仕様の曖昧さ
+  → Stop Hookで自動起動 or 手動呼び出し
+  → 呼び出しタイミング：毎回のStop時（自動）
+
+両方使うのが最も安全。criticが日常の網、phase-reviewerが節目の深いレビュー。
+```
+
+### Stop Hook + Critic 自動起動パターン
+
+```json
+// .claude/settings.json に追加
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "critic サブエージェントを使って、このセッションで変更したファイルをレビューしてください。",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+> **注意：** Stop Hook + Criticの常時有効化はトークン消費が増える。
+> 本番API操作や安全性が重要なプロジェクトで有効。
+> 小さなタスクのみのプロジェクトでは手動呼び出しで十分。
+
 ---
 
 ## Part B：Skills設計

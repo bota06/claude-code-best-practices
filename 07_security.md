@@ -125,6 +125,36 @@ chmod +x ~/.git-hooks/pre-commit
 
 ---
 
+## Git Push前安全チェック
+
+```
+個人PJと会社PJを同じマシンで開発している場合、
+push先を間違えると致命的な事故になる。
+
+push前に必ず確認すべき2点：
+
+□ git remote get-url origin
+  → 期待するorg/ユーザー名が含まれているか確認
+  → 別のorgが含まれていたら即停止してユーザーに確認
+
+□ git config user.email
+  → 個人/会社メールが正しく設定されているか確認
+
+CLAUDE.mdの「Gotchas」セクションに以下を追記すること：
+  「push前に git remote get-url origin を確認する」
+
+pre-bash-firewall.sh に追加するパターン（任意）：
+  if echo "$COMMAND" | grep -qE 'git push'; then
+    REMOTE=$(git remote get-url origin 2>/dev/null)
+    if ! echo "$REMOTE" | grep -q "expected-org"; then
+      echo "BLOCKED: push先が想定外: $REMOTE" >&2
+      exit 2
+    fi
+  fi
+```
+
+---
+
 ## Bot/自動化プロジェクトの安全設計
 
 ```

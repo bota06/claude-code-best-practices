@@ -218,6 +218,67 @@ act -l            # 利用可能なジョブ一覧
 
 ---
 
+## Part D：GitHub Actions 実践パターン集
+
+### State Commit パターン（GA内でJSON変更→commit→push）
+
+```yaml
+# ワークフロー内で状態ファイルを変更→コミットする場合のパターン
+# 用途：Bot/自動化がdata/*.jsonを更新してgitに保存する
+
+permissions:
+  contents: write          # push に必要
+
+concurrency:
+  group: state-commit      # 状態ファイル変更ワークフロー間の排他制御
+  cancel-in-progress: false # 実行中のジョブをキャンセルしない（データ消失防止）
+
+# ジョブ内のstep（末尾に追加）:
+    - name: Commit state changes
+      if: always()         # ← メイン処理が失敗してもstate保存する
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add data/*.json
+        git diff --cached --quiet || git commit -m "state: update $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        git push origin ${{ github.ref_name }} || \
+          (git pull --rebase origin ${{ github.ref_name }} && \
+           git push origin ${{ github.ref_name }})
+        # ↑ 並行実行時のコンフリクトを pull --rebase で自動回復
+```
+
+### Watchdog Workflow パターン（GA自動回復）
+
+GitHub Actions のスケジュール実行は無通知で停止することがある。
+Watchdogワークフローで各ワークフローの実行状況を監視し、停止時に自動リトリガーする。
+
+```
+設計：
+  各ワークフロー予定時刻 + 30分後に watchdog が発火
+  → gh run list で最終実行時刻を取得
+  → 60分以上停止していたら gh workflow run でリトリガー
+
+必要な権限：
+  permissions: actions: write（workflow リトリガーに必要）
+  GH_TOKEN: actions:write 権限のあるPAT
+
+→ テンプレート: templates/watchdog.yml 参照
+```
+
+### Python CI 完全テンプレート
+
+```
+lint(ruff) + test(pytest) + gitleaks の完全構成：
+  - fetch-depth: 0（gitleaksが全履歴を必要とする）
+  - permissions: pull-requests: read（PR差分取得に必要）
+  - python3 -m ruff（PATH未登録環境でも動く）
+  - dummy env vars（モック前提のテスト用）
+
+→ テンプレート: templates/ci-python.yml 参照
+```
+
+---
+
 ## ✅ 自己レビューチェックリスト（CCが確認せよ）
 
 ```

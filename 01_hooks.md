@@ -107,6 +107,32 @@ exit 0
 chmod +x .claude/hooks/pre-bash-firewall.sh
 ```
 
+### 拡張：本番API保護パターン（ドメイン固有ブロック）
+
+外部API（SNS投稿・課金操作等）を扱うプロジェクトでは、本番APIへの書き込みをブロックする
+パターンを追加せよ。テストコマンドは除外する。
+
+```bash
+# pre-bash-firewall.sh に追記する例
+
+# 本番APIへの書き込み操作をブロック（テスト実行は除外）
+API_WRITE_PATTERN='publish\(\)|post_reply\(\)|requests\.post.*api\.example'
+
+# pytest / テスト実行は除外
+if echo "$COMMAND" | grep -qE 'pytest|python3 -m pytest'; then
+  exit 0
+fi
+
+if echo "$COMMAND" | grep -qiE "$API_WRITE_PATTERN"; then
+  echo "BLOCKED: 本番APIへの直接書き込みは禁止されています。" >&2
+  echo "ユニットテスト（mock使用）で動作確認してください。" >&2
+  exit 2
+fi
+```
+
+> **実例：** デバッグ中に `post_reply()` を直接呼び出し、本番フォロワーのコメントに
+> テスト文が誤投稿された（削除不可）。Hookでブロックすれば防げた事故。
+
 ---
 
 ## 手順3：ファイル書き込み後の品質チェック（`post-write-quality.sh`）
@@ -140,6 +166,14 @@ if echo "$FILE_PATH" | grep -qE '\.(ts|tsx|js|jsx)$'; then
   fi
 fi
 
+# Python構文チェック（即時・軽量 — ruffより先に実行）
+if echo "$FILE_PATH" | grep -qE '\.py$'; then
+  if command -v python3 &>/dev/null; then
+    SYNTAX_RESULT=$(python3 -m py_compile "$FILE_PATH" 2>&1 || true)
+    [ -n "$SYNTAX_RESULT" ] && ISSUES+="構文エラー:\n$SYNTAX_RESULT\n"
+  fi
+fi
+
 # Python（Ruff）— ruffが直接使えない場合は python3 -m ruff にフォールバック
 if echo "$FILE_PATH" | grep -qE '\.py$'; then
   if command -v ruff &>/dev/null; then
@@ -161,6 +195,10 @@ if [ -n "$ISSUES" ]; then
   echo -e "品質チェック結果 ($FILE_PATH):\n$ISSUES"
 fi
 
+# 設計意図：PostToolUse は「警告のみ・ブロックしない」
+# 理由：リファクタリング途中など一時的に lint エラーが出る状態は正常。
+#       CCに問題を通知しつつ作業継続を許可する。
+#       「絶対にブロックすべき操作」は PreToolUse(pre-bash-firewall.sh) で行う。
 exit 0
 ```
 

@@ -241,3 +241,62 @@ Mar 20, 2025: The "think" tool
 Dec 19, 2024: Building effective agents
 Sep 19, 2024: Introducing Contextual Retrieval
 ```
+
+---
+
+## 実践知見：AIセルフレビューが構造的に不十分な理由
+
+> **このセクションは公式文書+学術論文+実プロジェクトの実証から導かれた知見。**
+
+### なぜAIは自分のミスに気づかないのか
+
+```
+原因①: コンテキスト汚染（Context Drift）
+  AIは実装時の推論プロセスを記憶している。
+  同じ会話内でレビューを頼んでもバイアスが消えない。
+
+  公式: "A fresh context improves code review since Claude
+         won't be biased toward code it just wrote."
+  — Claude Code公式ドキュメント
+
+原因②: 浅い意味論（Shallow Semantics）
+  「明示的に書かれていること」は読めるが、
+  「書かれていないこと」（暗黙のフロー接続等）には構造的に弱い。
+
+  出典: ICLR 2024 IdentityChain研究
+
+原因③: RLHF起因の自己肯定バイアス
+  人間フィードバックによる強化学習は「人間が喜ぶ回答」を最適化する。
+  これが「自分の出力を正しいと肯定する」形で表れる。
+
+  出典: ASDLC.io Adversarial Code Reviewパターン
+```
+
+### 解決策：生成エージェントとレビューエージェントを分離する
+
+```
+業界の実装例：
+- HubSpot Sidekick: 複数レビューエージェント並行分析 → Judge Agentが低品質除外
+- Google Jules: Actor-Critic パターン（生成と評価を分けて3〜5ラウンド）
+- HAMY.xyz: 9つの専門サブエージェントを並行起動
+
+設計原則：
+1. Criticエージェントには「拒絶バイアス」を持たせる
+2. 書き込み権限を与えない（Read/Grep/Glob/Bashのみ）
+3. Stop Hookで自動起動すればユーザーの指示なしで問題検出
+4. lessons.md にミスを蓄積し、Criticの精度を継続的に改善
+
+→ 実装テンプレート: templates/critic.md 参照
+→ 詳細設計書: QUALITY_GUARD.md（実プロジェクトでの設計根拠）
+```
+
+### 参考文献
+
+```
+- Best Practices for Claude Code — Claude Code公式
+- Adversarial Code Review — ASDLC.io
+- 9 Parallel AI Agents That Review My Code — HAMY.xyz
+- Beyond Accuracy: Evaluating Self-Consistency of Code LLMs — ICLR 2024
+- Peacemaker or Troublemaker: Sycophancy in Multi-Agent Debate — arXiv 2025
+- HubSpot's Sidekick: Multi-Model AI Code Review Agent — InfoQ
+```

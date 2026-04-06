@@ -26,12 +26,27 @@ Hooks     = 確定的。100%実行される「強制ルール」
 ./CLAUDE.md                  ← プロジェクトルート（git管理・チーム共有）★メイン
 ./src/api/CLAUDE.md          ← サブディレクトリ専用（APIルール等）
 ./CLAUDE.local.md            ← ローカル限定（.gitignoreに追加、個人設定）
+.claude/rules/*.md           ← CLAUDE.mdから分離した運用ルール（テーマ別）
 
 @構文でインポート可能（ファイルサイズ節約）：
   @README.md
   @docs/coding-standards.md
   @~/.claude/my-preferences.md
 ```
+
+### `.claude/rules/` ディレクトリ（推奨）
+
+CLAUDE.mdが200行に近づいたら、テーマ別のルールを `.claude/rules/` に分離する。
+rulesファイルはCLAUDE.mdと同様にCCのコンテキストに自動ロードされる。
+
+```
+.claude/rules/
+├── doc-management.md    ← ドキュメント管理ルール（何をどこに書くか）
+├── current-task.md      ← 現在のタスク・フェーズ状態（随時更新）
+└── branch-coordination.md ← ブランチ構成・PR状態
+```
+
+> テンプレート: `templates/doc-management-rule.md` 参照
 
 ---
 
@@ -102,6 +117,12 @@ docs/
 └── decisions/  # アーキテクチャ決定記録（ADR）
 ```
 
+## 判断・回答スタンス
+- 自信満々な回答を慎む。調査結果・推測には「確認が必要」「未検証」を明示する
+- サブエージェントの出力も鵜呑みにしない。一次ソースで裏取りしてから根拠に使う
+- スコープの膨張に気づいたら立ち止まる。元の要件より大きい変更になっていないか随時確認する
+- 「おそらく」「〜のはず」で進めない。不確かなまま実装を始めず、不明点を先に潰す
+
 ## Coding Rules
 - [言語固有のルール：例 TypeScript strict mode必須]
 - [命名規則：例 named exportのみ]
@@ -115,6 +136,12 @@ docs/
 
 ## Architecture Decisions
 [重要な設計決定とその理由 - 実装時に追記する]
+
+## タスク完了定義
+タスクが「完了」とみなされるのは以下をすべて満たした場合のみ:
+- [ ] フロー完結チェック：データの流れを最初から最後まで追い、断絶がないか確認
+- [ ] クロスファイル整合性：変更ファイルが参照する他ファイルと矛盾がないか確認
+- [ ] Criticレビュー：不安がある場合は critic サブエージェントを呼び出す
 
 ## Gotchas（CCが間違えやすいポイント）
 [実際に間違えたら追記する - これが最も価値がある]
@@ -193,6 +220,23 @@ knowledge/
 └── ng_words.txt      # 禁止ワードリスト
 
 → CLAUDE.mdの Directory Structure セクションで knowledge/ を明記すること
+```
+
+---
+
+## lessons.md パターン（自己改善ループ）
+
+```
+ミスが発生したら以下のサイクルで永続的なルールに変換する：
+
+1. Reflect:    なぜこのミスが起きたか
+2. Abstract:   このミスの本質（一般化できる形で）
+3. Generalize: 次回から守るべきルール
+4. Write:      docs/lessons.md に [Lxxx] として追記
+
+→ セッションをまたいで同じミスを繰り返すリスクを下げる
+→ Criticエージェントがlessons.mdのルール違反をチェックすることで精度が向上する
+→ テンプレート: templates/lessons.md 参照
 ```
 
 ---

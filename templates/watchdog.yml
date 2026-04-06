@@ -1,0 +1,62 @@
+# Watchdog workflow テンプレート
+# GitHub Actions のスケジュール実行が無通知で停止する問題への対策
+# 各ワークフロー予定時刻+30分後に発火し、最終実行が60分以上前なら自動リトリガー
+#
+# 使い方:
+# 1. .github/workflows/watchdog.yml としてコピー
+# 2. チェック対象のワークフロー名・スケジュールを編集
+# 3. GH_TOKEN に actions:write 権限のあるトークンを設定
+
+name: Watchdog
+
+on:
+  schedule:
+    # 各ワークフロー予定時刻+30分後に設定する（UTC）
+    # 例: main.yml が 0:00 UTC → watchdog は 0:30 UTC
+    - cron: '30 0 * * *'
+    # 複数ワークフローがある場合は複数cronを追加
+    # - cron: '30 6 * * *'
+    # - cron: '30 12 * * *'
+  workflow_dispatch:   # 手動実行・動作確認用
+
+permissions:
+  actions: write       # workflow リトリガーに必要
+  contents: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}   # actions:write 権限のあるPAT
+      REPO: ${{ github.repository }}
+
+    steps:
+      - name: Check target workflow
+        run: |
+          WORKFLOW="main.yml"          # ← チェック対象のワークフローファイル名
+          DEFAULT_BRANCH="main"        # ← デフォルトブランチ名
+          MAX_AGE_MINUTES=60           # ← この分数以上停止していたらリトリガー
+
+          LAST=$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --event schedule --limit 1 --json createdAt --jq '.[0].createdAt // empty')
+
+          if [ -z "$LAST" ]; then
+            echo "$WORKFLOW: 実行履歴なし → kick"
+            gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$DEFAULT_BRANCH"
+          else
+            LAST_UNIX=$(date -d "$LAST" +%s)
+            NOW_UNIX=$(date +%s)
+            DIFF=$(( (NOW_UNIX - LAST_UNIX) / 60 ))
+            echo "$WORKFLOW: 最終実行 ${DIFF}分前"
+            if [ "$DIFF" -gt "$MAX_AGE_MINUTES" ]; then
+              echo "$WORKFLOW: ${MAX_AGE_MINUTES}分以上停止 → kick"
+              gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$DEFAULT_BRANCH"
+            else
+              echo "$WORKFLOW: 正常"
+            fi
+          fi
+
+      # 複数ワークフローをチェックする場合はstepを複製する
+      # - name: Check another workflow
+      #   run: |
+      #     WORKFLOW="generate.yml"
+      #     ...
